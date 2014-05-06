@@ -1,0 +1,165 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from fileinput import input
+from getopt import getopt, GetoptError
+import sys, re
+
+# Options
+debug = False
+test = False
+
+# Terminals
+T = [';', 'id', ':=', 'if', 'then', 'endif', 'else', 'while', 'do',
+    'end', 'c', '<', '=', '!=', '+', '-', '$']
+
+# Parse table
+table = {'P': {'id': ['L'], 'if': ['L'], 'while': ['L']},
+    'L': {'id': ['I', 'L1'], 'if': ['I', 'L1'], 'while': ['I', 'L1']},
+    'L1': {';': [';', 'L'], 'endif': [], 'else': [], 'end': [], '$': []},
+    'I': {'id': ['A'], 'if': ['C'], 'while': ['W']},
+    'A': {'id': ['id', ':=', 'E']},
+    'C': {'if': ['if', 'E', 'then', 'L', 'O', 'endif']},
+    'O': {'endif': [], 'else': ['else', 'L']},
+    'W': {'while': ['while', 'E', 'do', 'L', 'end']},
+    'E': {'id': ['E2', 'E1'], 'c': ['E2', 'E1']},
+    'E1': {';': [], 'then': [], 'endif': [], 'else': [], 'do': [], 'end': [],
+        '<': ['Op1', 'E2', 'E1'], '=': ['Op1', 'E2', 'E1'],
+        '!=': ['Op1', 'E2', 'E1'], '$': []},
+    'E2': {'id': ['T', 'E3'], 'c': ['T', 'E3']},
+    'E3': {';': [], 'then': [], 'endif': [], 'else': [], 'do': [], 'end': [],
+        '<': [], '=': [], '!=': [], '+': ['Op2', 'E2'], '-': ['Op2', 'E2'],
+        '$': []},
+    'T': {'id': ['id'], 'c': ['c']},
+    'Op1': {'<': ['<'], '=': ['='], '!=': ['!=']},
+    'Op2': {'+': ['+'], '-': ['-']}}
+
+# Error recovery
+error = False
+
+first = {'P': ['id', 'if', 'while'],
+    'L': ['id', 'if', 'while'],
+    'L1': [';', ''],
+    'I': ['id', 'if', 'while'],
+    'A': ['id'],
+    'C': ['if'],
+    'O': ['else', ''],
+    'W': ['while'],
+    'E': ['c', 'id'],
+    'E1': ['<', '=', '!=', ''],
+    'E2': ['c', 'id'],
+    'E3': ['+', '-', ''],
+    'T': ['c', 'id'],
+    'Op1': ['<', '=', '!='],
+    'Op2': ['+', '-']}
+
+follow = {'P': ['$'],
+    'L': ['end', 'else', 'endif', '$'],
+    'L1': ['end', 'else', 'endif', '$'],
+    'I': [';', 'end', 'else', 'endif', '$'],
+    'A': [';', 'end', 'else', 'endif', '$'],
+    'C': [';', 'end', 'else', 'endif', '$'],
+    'O': ['endif'],
+    'W': [';', 'end', 'else', 'endif', '$'],
+    'E': ['do', 'then', ';', 'end', 'else', 'endif', '$'],
+    'E1': ['do', 'then', ';', 'end', 'else', 'endif', '$'],
+    'E2': ['<', '=', '!=', 'do', 'then', ';', 'end', 'else', 'endif', '$'],
+    'E3': ['<', '=', '!=', 'do', 'then', ';', 'end', 'else', 'endif', '$'],
+    'T': ['+', '-', '<', '=', '!=', 'do', 'then', ';', 'end', 'else', 'endif',
+        '$'],
+    'Op1': ['c', 'id'],
+    'Op2': ['c', 'id']}
+
+# Stack
+stack = ['$', 'P']
+
+def lex(s):
+    "Convert a string into a list of tokens."
+    return re.findall('|'.join(re.escape(t) for t in T), s)
+
+def end():
+    if not error:
+        print('accepted')
+        exit(0)
+    else:
+        print('rejected')
+        exit(1)
+
+def parse(toks):
+    global stack, error
+    pos = 0
+    while stack:
+        tok = toks[pos]
+        # Information about the current step.
+        if debug and not test:
+            print(' '.join(toks[pos:]))
+        if not test:
+            print(' '.join(reversed(stack)))
+        tos = stack.pop()
+        if tos not in T:
+            # Top of stack is a variable.
+            try:
+                rule = table[tos][tok]
+            except KeyError:
+                # No rule for T[V, a].
+                error = True
+                expected = [e for e in first[tos] if e != '']
+                while '' in first[tos]:
+                    tos = stack.pop()
+                    if tos in T:
+                        expected += [tos] if tos != '$' else ['EOF']
+                        break
+                    expected = [e for e in expected + first[tos] if e != '']
+                msg = ', '.join(expected)
+                tokmsg = tok
+                if tokmsg == '$':
+                    tokmsg = 'EOF'
+                print('expected {0} instead of {1}'.format(msg, tokmsg),
+                    file=sys.stderr)
+                if not stack:
+                    end()
+                elif tos in T or tok in follow[tos]:
+                    continue
+                else:
+                    pos += 1
+                    continue
+            for r in reversed(rule):
+                stack.append(r)
+        else:
+            if tos == tok:
+                if tok == '$':
+                    end()
+                pos += 1
+            else:
+                error = True
+                msg = tos
+                if msg == '$':
+                    msg = 'EOF'
+                tokmsg = tok
+                if tokmsg == '$':
+                    tokmsg = 'EOF'
+                print('expected {0} instead of {1}'.format(msg, tokmsg),
+                    file=sys.stderr)
+        if debug and not test:
+            print()
+
+def main():
+    global debug, test
+    toks = []
+    try:
+        opts, args = getopt(sys.argv[1:], 'dt')
+    except GetoptError:
+        print('parser [-dt] [file ...]')
+        sys.exit(2)
+    for o, a in opts:
+        if o == '-d':
+            debug = True
+        elif o == '-t':
+            test = True
+    for line in input(args):
+        toks += lex(line)
+    toks += ['$']
+    parse(toks)
+
+if __name__ == '__main__':
+    main()

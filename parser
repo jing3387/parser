@@ -5,15 +5,9 @@ from fileinput import input
 from getopt import getopt, GetoptError
 import sys, re
 
-# Options
-debug = False
-test = False
-
-# Terminals
-T = [';', 'id', ':=', 'if', 'then', 'endif', 'else', 'while', 'do',
+terminals = [';', 'id', ':=', 'if', 'then', 'endif', 'else', 'while', 'do',
     'end', 'c', '<', '=', '!=', '+', '-', '$']
 
-# Parse table
 table = {'P': {'id': ['L'], 'if': ['L'], 'while': ['L']},
     'L': {'id': ['I', 'L1'], 'if': ['I', 'L1'], 'while': ['I', 'L1']},
     'L1': {';': [';', 'L'], 'endif': [], 'else': [], 'end': [], '$': []},
@@ -34,7 +28,7 @@ table = {'P': {'id': ['L'], 'if': ['L'], 'while': ['L']},
     'Op1': {'<': ['<'], '=': ['='], '!=': ['!=']},
     'Op2': {'+': ['+'], '-': ['-']}}
 
-# Error recovery
+# Error reporting and recovery
 error = False
 
 first = {'P': ['id', 'if', 'while'],
@@ -70,96 +64,114 @@ follow = {'P': ['$'],
     'Op1': ['c', 'id'],
     'Op2': ['c', 'id']}
 
-# Stack
-stack = ['$', 'P']
+# Options
+DEBUG = False
+TEST = False
 
 def lex(s):
-    "Convert a string into a list of tokens."
-    return re.findall('|'.join(re.escape(t) for t in T), s)
+    '''Convert a string into a list of tokens.'''
 
-def end():
-    if not error:
-        print('accepted')
-        exit(0)
+    return re.findall('|'.join(re.escape(t) for t in terminals), s)
+
+def panic(token, pos, tos, stack):
+    '''The parser's prediction is wrong. Print an appropriate error message and
+    then synchronise on the FOLLOW set of the top of stack.'''
+
+    # Expected output is the FIRST set of the top of the stack but don't use
+    # epsilon in the error message.
+    expected = [e for e in first[tos] if e != '']
+    # Given this variable can produce epsilon find FIRST set of the next
+    # item on the stack.
+    while '' in first[tos]:
+        tos = stack.pop()
+        # FIRST of a terminal is a set containing only the terminal.
+        if tos in terminals:
+            expected += [tos]
+            # A terminal definitely can't produce epsilon.
+            break
+        expected = [e for e in expected + first[tos] if e != '']
+    # Make a nice error message.
+    msg = "'" + ", '".join(expected[:-1]) + "'" + " or '" + expected[-1] + "'"
+    if not TEST:
+        print("expected {0} instead of '{1}'".format(msg, token),
+            file=sys.stderr)
+    # FOLLOW-set error recovery
+    if tos in terminals or token in follow[tos]:
+        return
     else:
-        print('rejected')
-        exit(1)
+        pos += 1
+        return
 
-def parse(toks):
-    global stack, error
+def parse(tokens):
+    '''Parse a list of tokens which determines whether the given string belongs
+    to the grammar.'''
+
+    stack = ['$', 'P']
+    error = False
     pos = 0
     while stack:
-        tok = toks[pos]
+        token = tokens[pos]
         # Information about the current step.
-        if debug and not test:
-            print(' '.join(toks[pos:]))
-        if not test:
+        if DEBUG and not TEST:
+            print(' '.join(tokens[pos:]))
+        if not TEST:
             print(' '.join(reversed(stack)))
         tos = stack.pop()
-        if tos not in T:
+        if tos in terminals:
+            if tos == token:
+                # Reached the end of the input.
+                if token == '$':
+                    if not error:
+                        print('accepted')
+                        sys.exit(0)
+                    else:
+                        print('rejected')
+                        sys.exit(1)
+                pos += 1
+            else:
+                # The top of stack didn't match the given terminal, let's issue
+                # and error and try again.
+                error = True
+                if not TEST:
+                    print("expected '{0}' instead of '{1}'".format(tos, token),
+                        file=sys.stderr)
+        else:
             # Top of stack is a variable.
             try:
-                rule = table[tos][tok]
+                rule = table[tos][token]
+            # There's no applicable rule for the top of stack and the given
+            # token. Start panicking!
             except KeyError:
                 # No rule for T[V, a].
                 error = True
-                expected = [e for e in first[tos] if e != '']
-                while '' in first[tos]:
-                    tos = stack.pop()
-                    if tos in T:
-                        expected += [tos] if tos != '$' else ['EOF']
-                        break
-                    expected = [e for e in expected + first[tos] if e != '']
-                msg = ', '.join(expected)
-                tokmsg = tok
-                if tokmsg == '$':
-                    tokmsg = 'EOF'
-                print('expected {0} instead of {1}'.format(msg, tokmsg),
-                    file=sys.stderr)
-                if not stack:
-                    end()
-                elif tos in T or tok in follow[tos]:
-                    continue
-                else:
-                    pos += 1
-                    continue
+                panic(token, pos, tos, stack)
+            # Push the given rule onto the stack.
             for r in reversed(rule):
                 stack.append(r)
-        else:
-            if tos == tok:
-                if tok == '$':
-                    end()
-                pos += 1
-            else:
-                error = True
-                msg = tos
-                if msg == '$':
-                    msg = 'EOF'
-                tokmsg = tok
-                if tokmsg == '$':
-                    tokmsg = 'EOF'
-                print('expected {0} instead of {1}'.format(msg, tokmsg),
-                    file=sys.stderr)
-        if debug and not test:
+        if DEBUG and not TEST:
             print()
 
 def main():
-    global debug, test
-    toks = []
+    global DEBUG, TEST
+    tokens = []
+    # Process the given arguments.
     try:
         opts, args = getopt(sys.argv[1:], 'dt')
     except GetoptError:
         print('parser [-dt] [file ...]')
         sys.exit(2)
-    for o, a in opts:
-        if o == '-d':
-            debug = True
-        elif o == '-t':
-            test = True
+    for opt, arg in opts:
+        if opt == '-d':
+            DEBUG = True
+        elif opt == '-t':
+            TEST = True
+    # Process the given files.
     for line in input(args):
-        toks += lex(line)
-    toks += ['$']
-    parse(toks)
+        tokens += lex(line)
+    # Mark the end of the tokens.
+    tokens += ['$']
+    # Let's do this!
+    parse(tokens)
 
 if __name__ == '__main__':
     main()

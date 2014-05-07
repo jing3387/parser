@@ -1,0 +1,5 @@
+if c < id then
+    id := c
+els
+    id := c + c
+endif

@@ -1,1 +1,4 @@
 invalid assign: gets a false positive
+
+# Output
+left derivation \t stack contents

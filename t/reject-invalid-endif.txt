@@ -1,0 +1,3 @@
+if c != id then
+    id := c
+endiff

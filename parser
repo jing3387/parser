@@ -158,6 +158,7 @@ def parse(tokens):
     derivation = stack[-1]
     error = False
     pos = 0
+    panicking = False
     while stack:
         token = tokens[pos]
         # Information about the current step.
@@ -173,20 +174,33 @@ def parse(tokens):
                 if token == '$':
                     break
                 pos += 1
+                panicking = False
             else:
                 # The top of stack didn't match the given terminal.
                 error = True
                 if not TEST:
                     print("expected '{0}' instead of '{1}'".format(tos, token),
                         file=sys.stderr)
-                # Remove the predicted terminal.
-                derivation = ' '.join(derivation.replace(tos, '', 1).split())
+                # Replace the predicted terminal in the derivation.
+                derivation = ' '.join(derivation.replace(tos, token,
+                    1).split())
+                panicking = True
         else:
             # Top of stack is a variable.
             try:
                 rule = table[tos][token]
             # No T[V,a]; start panicking!
             except KeyError:
+                if panicking:
+                    # Panicking a second time in a row. Will lead to spurious
+                    # error messages so bail out.
+                    if not TEST:
+                        i = derivation.index(tos)
+                        print(derivation[:i] + ' '.join(tokens[pos+1:-1]),
+                            '\t', ' '.join(reversed(stack + [tos])))
+                    print('rejected')
+                    sys.exit(1)
+                panicking = True
                 error = True
                 pos, derivation = panic(pos, tokens, tos, stack, derivation)
                 continue
@@ -196,6 +210,7 @@ def parse(tokens):
             # Replace the variable with its rule.
             derivation = ' '.join(derivation.replace(tos, ' '.join(rule),
                 1).split())
+            panicking = False
         if DEBUG and not TEST:
             print()
     if not error:

@@ -1,7 +1,0 @@
-while c < id do
-    id := c
-end;
-
-while c < id do
-    id := c
-end

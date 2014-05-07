@@ -8,12 +8,18 @@ total=0
 for f in $(ls t); do
 	total=$(expr $total + 1)
 	observed=$(./parser -t t/$f)
+	# The prefix of accept or reject in the file name designates expected
+	# output.
 	expected=$(echo $f | sed -e 's/accept.*/accepted/' \
 		-e 's/reject.*/rejected/')
+	# Clean up file name to use as description for test.
+	description=$(echo $f | sed -e 's/accept-//' -e 's/reject-//' \
+		-e 's/-/ /g' -e 's/.txt//')
 	if [[ $expected = $observed ]]; then
+		echo "$description: passed"
 		count=$(expr $count + 1)
 	else
-		echo "$f: expected $expected instead of $observed"
+		echo "$description: failed; expected $expected instead of $observed"
 	fi
 done
 echo "$count/$total tests passed"

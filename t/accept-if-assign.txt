@@ -1,0 +1,5 @@
+if c < id then
+    id := id + c
+endif;
+
+id := id

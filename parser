@@ -65,6 +65,7 @@ follow = {'P': ['$'],
     'Op2': ['c', 'id']}
 # Tokens that can start statements.
 start = ['id', 'if', 'while']
+toplevel = ['P', 'L']
 
 # Options
 DEBUG = False
@@ -73,7 +74,7 @@ TEST = False
 def lex(string):
     '''Convert a string into a list of tokens.'''
 
-    pattern = '|'.join(re.escape(t) for t in terminals) + r'|\b[\w\d]+\b'
+    pattern = '|'.join(re.escape(t) for t in terminals) + r'|\S+'
     return re.findall(pattern, string)
 
 def panic(pos, tokens, tos, stack, derivation):
@@ -95,7 +96,18 @@ def panic(pos, tokens, tos, stack, derivation):
     split = derivation.split()
     # Error recovery
     while True:
-        if pos >= len(tokens):
+        if tos in toplevel:
+            # Top-level error recovery creates spurious error messages; give
+            # up.
+            if not TEST:
+                if DEBUG:
+                    print(' '.join(tokens[pos:]))
+                i = split.index(tos)
+                derivation = ' '.join(split[:i] + tokens[pos:-1])
+                print(derivation, '\t', ' '.join(reversed(stack + [tos])))
+            print('rejected')
+            sys.exit(1)
+        elif pos >= len(tokens):
             # Ran out of input to synchronise with. Print the final derivation
             # and stack then bail out.
             pos = len(tokens) - 1

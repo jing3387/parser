@@ -1,7 +1,5 @@
 if c < id then
     id := c
-endif;
-
-if c = id then
+else
     id := c
 endif

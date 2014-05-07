@@ -1,6 +1,7 @@
 if c < id then
-    id := c;
-    if c = id then
-        id := c + c
-    endif
+    id := c
+endif;
+
+if c = id then
+    id := c
 endif

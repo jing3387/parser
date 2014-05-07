@@ -1,0 +1,5 @@
+id := id;
+
+while c < id do
+    id := id + c
+end

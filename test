@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+expected=''
+observed=''
+count=0
+total=0
+
+for f in $(ls t); do
+	total=$(expr $total + 1)
+	observed=$(./parser -t t/$f)
+	expected=$(echo $f | sed -e 's/accept.*/accepted/' \
+		-e 's/reject.*/rejected/')
+	if [[ $expected = $observed ]]; then
+		count=$(expr $count + 1)
+	else
+		echo "$f: expected $expected instead of $observed"
+	fi
+done
+echo "$count/$total tests passed"

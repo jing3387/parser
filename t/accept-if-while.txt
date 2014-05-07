@@ -1,0 +1,5 @@
+if c = id then
+    while c < id do
+        id := c
+    end
+endif

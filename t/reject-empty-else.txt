@@ -1,0 +1,4 @@
+if c < id then
+    id := c
+else
+endif

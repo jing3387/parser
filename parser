@@ -3,7 +3,7 @@
 from __future__ import print_function
 from fileinput import input
 from getopt import getopt, GetoptError
-import sys, re
+import sys, re, string
 
 terminals = [';', 'id', ':=', 'if', 'then', 'endif', 'else', 'while', 'do',
     'end', 'c', '<', '=', '!=', '+', '-', '$']
@@ -29,8 +29,6 @@ table = {'P': {'id': ['L'], 'if': ['L'], 'while': ['L']},
     'Op2': {'+': ['+'], '-': ['-']}}
 
 # Error reporting and recovery
-error = False
-
 first = {'P': ['id', 'if', 'while'],
     'L': ['id', 'if', 'while'],
     'L1': [';', ''],
@@ -46,7 +44,9 @@ first = {'P': ['id', 'if', 'while'],
     'T': ['c', 'id'],
     'Op1': ['<', '=', '!='],
     'Op2': ['+', '-']}
-
+# A terminal's FIRST set is only the terminal.
+for t in terminals:
+    first[t] = [t]
 follow = {'P': ['$'],
     'L': ['end', 'else', 'endif', '$'],
     'L1': ['end', 'else', 'endif', '$'],
@@ -63,93 +63,135 @@ follow = {'P': ['$'],
         '$'],
     'Op1': ['c', 'id'],
     'Op2': ['c', 'id']}
+# Tokens that can start statements.
+start = ['id', 'if', 'while']
 
 # Options
 DEBUG = False
 TEST = False
 
-def lex(s):
+def lex(string):
     '''Convert a string into a list of tokens.'''
 
-    return re.findall('|'.join(re.escape(t) for t in terminals), s)
+    pattern = '|'.join(re.escape(t) for t in terminals) + r'|\b[\w\d]+\b'
+    return re.findall(pattern, string)
 
-def panic(token, pos, tos, stack):
+def panic(pos, tokens, tos, stack, derivation):
     '''The parser's prediction is wrong. Print an appropriate error message and
     then synchronise on the FOLLOW set of the top of stack.'''
 
     # Expected output is the FIRST set of the top of the stack but don't use
     # epsilon in the error message.
-    expected = [e for e in first[tos] if e != '']
-    # Given this variable can produce epsilon find FIRST set of the next
-    # item on the stack.
-    while '' in first[tos]:
-        tos = stack.pop()
-        # FIRST of a terminal is a set containing only the terminal.
-        if tos in terminals:
-            expected += [tos]
-            # A terminal definitely can't produce epsilon.
-            break
-        expected = [e for e in expected + first[tos] if e != '']
+    expected = first[tos] + follow[tos] if '' in first[tos] else first[tos]
+    while '' in expected:
+        expected.remove('')
     # Make a nice error message.
-    msg = "'" + ", '".join(expected[:-1]) + "'" + " or '" + expected[-1] + "'"
+    msg = "'" + "', '".join(expected[:-1]) + "'" + " or '" + expected[-1] + "'"
     if not TEST:
-        print("expected {0} instead of '{1}'".format(msg, token),
+        print("expected {0} instead of '{1}'".format(msg, tokens[pos]),
             file=sys.stderr)
-    # FOLLOW-set error recovery
-    if tos in terminals or token in follow[tos]:
-        return
-    else:
+        if DEBUG:
+            print()
+    split = derivation.split()
+    # Error recovery
+    while True:
+        if pos >= len(tokens):
+            # Ran out of input to synchronise with. Print the final derivation
+            # and stack then bail out.
+            pos = len(tokens) - 1
+            if not TEST:
+                if DEBUG:
+                    print(' '.join(tokens[pos:]))
+                i = split.index(tos)
+                derivation = ' '.join(split[:i-1])
+                print(derivation, '\t', ' '.join(reversed(stack + [tos])))
+            print('rejected')
+            sys.exit(1)
+        elif tokens[pos] in follow[tos]:
+            split.remove(tos)
+            break
+        elif tokens[pos] in start:
+            # Find the first item on the stack with token in its FIRST set.
+            while not [t for t in first[tos] if t in start]:
+                split.remove(tos)
+                tos = stack.pop()
+                if not stack:
+                    # Ran out of stack to synchronise with. Print the final
+                    # derivation and stack then bail out.
+                    if not TEST:
+                        if DEBUG:
+                            print(' '.join(tokens[pos:]))
+                        derivation = ' '.join(split + tokens[pos:-1])
+                        print(derivation, '\t$')
+                    return (pos, derivation)
+            stack += tos
+            break
+        elif tokens[pos] in first[tos]:
+            # Possible to restart from this token and variable. Repair the
+            # stack and continue.
+            stack += tos
+            break
+        # Put skipped input from error recovery into the derivation.
+        i = split.index(tos)
+        split = split[:i] + [tokens[pos]] + split[i:]
         pos += 1
-        return
+    derivation = ' '.join(split)
+    return (pos, derivation)
 
 def parse(tokens):
     '''Parse a list of tokens which determines whether the given string belongs
     to the grammar.'''
 
     stack = ['$', 'P']
+    derivation = stack[-1]
     error = False
     pos = 0
     while stack:
         token = tokens[pos]
         # Information about the current step.
-        if DEBUG and not TEST:
-            print(' '.join(tokens[pos:]))
         if not TEST:
-            print(' '.join(reversed(stack)))
+            if DEBUG:
+                print(' '.join(tokens[pos:]))
+            print(derivation, '\t', ' '.join(reversed(stack)))
+        # Top of stack
         tos = stack.pop()
         if tos in terminals:
             if tos == token:
                 # Reached the end of the input.
                 if token == '$':
-                    if not error:
-                        print('accepted')
-                        sys.exit(0)
-                    else:
-                        print('rejected')
-                        sys.exit(1)
+                    break
                 pos += 1
             else:
-                # The top of stack didn't match the given terminal, let's issue
-                # and error and try again.
+                # The top of stack didn't match the given terminal.
                 error = True
                 if not TEST:
                     print("expected '{0}' instead of '{1}'".format(tos, token),
                         file=sys.stderr)
+                # Remove the predicted terminal.
+                derivation = ' '.join(derivation.replace(tos, '', 1).split())
         else:
             # Top of stack is a variable.
             try:
                 rule = table[tos][token]
-            # There's no applicable rule for the top of stack and the given
-            # token. Start panicking!
+            # No T[V,a]; start panicking!
             except KeyError:
-                # No rule for T[V, a].
                 error = True
-                panic(token, pos, tos, stack)
+                pos, derivation = panic(pos, tokens, tos, stack, derivation)
+                continue
             # Push the given rule onto the stack.
             for r in reversed(rule):
                 stack.append(r)
+            # Replace the variable with its rule.
+            derivation = ' '.join(derivation.replace(tos, ' '.join(rule),
+                1).split())
         if DEBUG and not TEST:
             print()
+    if not error:
+        print('accepted')
+        sys.exit(0)
+    else:
+        print('rejected')
+        sys.exit(1)
 
 def main():
     global DEBUG, TEST

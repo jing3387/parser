@@ -1,0 +1,3 @@
+if id < c the
+    id := c
+endif

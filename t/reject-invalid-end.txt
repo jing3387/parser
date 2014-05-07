@@ -1,0 +1,3 @@
+while c < id do
+    c := id
+en

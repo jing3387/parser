@@ -65,7 +65,7 @@ follow = {'P': ['$'],
     'Op2': ['c', 'id']}
 # Tokens that can start statements.
 start = ['id', 'if', 'while']
-toplevel = ['P', 'L']
+toplevel = ['P', 'L', 'I']
 
 # Options
 DEBUG = False

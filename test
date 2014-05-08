@@ -16,10 +16,10 @@ for f in $(ls t); do
 	description=$(echo $f | sed -e 's/accept-//' -e 's/reject-//' \
 		-e 's/-/ /g' -e 's/.txt//')
 	if [[ $expected = $observed ]]; then
-		echo "$description: passed"
+		echo "$description: passed: expected $expected, observed $observed"
 		count=$(expr $count + 1)
 	else
-		echo "$description: failed; expected $expected instead of $observed"
+		echo "$description: failed: expected $expected, observed $observed"
 	fi
 done
 echo "$count/$total tests passed"

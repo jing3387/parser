@@ -1,4 +1,12 @@
-invalid assign: gets a false positive
+# LL(1) parser
 
-# Output
-left derivation \t stack contents
+## Installing
+If the files ``parser'' and ``test'' aren't executable:
+    chmod +x parser test
+
+## Usage
+To use the parser:
+    ./parser file
+
+To test the parser with the tests in t/:
+    ./test
